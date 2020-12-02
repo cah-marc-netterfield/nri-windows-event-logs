@@ -1,6 +1,7 @@
 ###
 # This PowerShell script grabs the Windows event logs and posts them to New Relic Logs.
-# v2.1 -  Updated to provide filtering out of event type (i.e. Verbose, Informational, Warning, Error, Critical) and EventID.
+# v2.2 -  Updated to use the get-winevent command to allow collecting extended logs.
+#         Updated payload to more closely match the Infra agent based log forwarder.
 #
 # The following command is required for testing:
 #
@@ -15,27 +16,32 @@
 
 param (
     [string]$LogName=$(throw "-LogName is mandatory"),
-	  [string]$nrLicenseKey=$(throw "-nrLicenseKey is mandatory"),
-	  [string[]]$ExclLevel = "",
-	  [string[]]$ExclEventID = ""
+	[string[]]$ExclLevel = "",
+	[string[]]$ExclEventID = ""
 )
 
 # App Version (so we know if someone's running an older release of this integration)
-$appVersion = "2.1"
+$appVersion = "2.2"
 
 # New Relic Logs endpoint
 $nrLogEndpoint = "https://log-api.newrelic.com/log/v1"
 
 ###
-# Logic to handle getting new log entries by saving current date to file
-# to use as -After argument of Get-Date in next pull. On first run we use current date.
-# On subsequent runs it will use last date written to file.
-#
-# Uses LogName param to create timestamp for each LogName
+# Get license key from infra config file
 ###
 
-$LAST_PULL_TIMESTAMP_FILE = "./last-pull-timestamp-$LogName.txt"
+((get-Content -Path ('c:\program files\New Relic\newrelic-infra\newrelic-infra.yml') ) | Select-String  -Pattern 'license_key:' ) -imatch "^license_key:\s*(?<key>\w*)$" | Out-Null
+$LicenseKey = $matches['key']
 
+###
+# Logic to handle getting new log entries by saving current date to file
+# to use as styarttime argument of Get-WinEvent in next pull. On first run we use current date.
+# On subsequent runs it will use last date written to file.
+#
+# Uses LogName param to create timestamp for each LogName with slashes removed
+###
+
+$LAST_PULL_TIMESTAMP_FILE = "./last-pull-timestamp-$($LogName.replace('\',' ').replace('/',' ')).txt"
 
 ###
 # If timestamp file exists, use it; otherwise,
@@ -57,64 +63,52 @@ if(Test-Path $LAST_PULL_TIMESTAMP_FILE -PathType Leaf) {
 ###
 # Write current timestamp to file to pull on next run.
 ###
+
 Set-Content -Path $LAST_PULL_TIMESTAMP_FILE -Value (Get-Date -Format o)
 
 ###
-# Pull events using -After param with timestamp.  Use PowerShell Calculated Properties to rename some properties to expected values.
+# Pull events using StartTime with timestamp.  Use PowerShell Calculated Properties to rename some properties to expected values.
 # For some reason, the -or operator doesn't work as expected in a single Where-Object cmdlet, so I had to use two.
 ###
-$events = Get-EventLog -LogName $LogName -After $timestamp | Where-Object {$_.EntryType -notin $ExclLevel} | Where-Object {$_.EventID -notin $ExclEventID} | Select-Object @{Name = "hostname"; Expression = {$_.MachineName}}, `
-																																								                                                                              @{Name = "message"; Expression = {$_.Message}}, `
-																																								                                                                              @{Name = "level"; Expression = {$_.EntryType}}, `
-																																								                                                                              TimeGenerated, Category, EventID, Source, UserName;
+
+$events = Get-WinEvent -filterhashtable @{
+    Logname=$LogName
+    StartTime=$timestamp
+} | Where-Object {$_.LevelDisplayName -notin $ExclLevel} | Where-Object {$_.ID -notin $ExclEventID} | 
+Select-Object ProcessID, UserID, 
+@{Name = "hostname"; Expression ={ $env:COMPUTERNAME.ToLower() }},
+@{Name = "event_type"; Expression ={'Windows Event Logs'}},
+@{Name = "message"; Expression ={$_.message}},
+@{Name = "ComputerName"; Expression ={$_.MachineName}},
+@{Name = "Channel"; Expression ={$_.LogName}},
+@{Name = "EventCategory"; Expression ={$_.level}},
+@{Name = "WinEventType"; Expression ={$_.LevelDisplayName}},
+@{Name = "EventID"; Expression ={$_.id}},
+@{Name = "SourceName"; Expression ={$_.ProviderName}},
+@{Name = "TimeGenerated"; Expression ={($_.TimeCreated).datetime }},
+@{Name = "TimeWritten"; Expression ={( get-date ).DateTime }},
+@{Name = "RecordNumber"; Expression ={ $_.RecordID }}
 
 ###
-# Add required 'event_type' to objects from Get-EventLog.
-# Add optional 'log_name' value to object.
+# ConvertTo-Json with -Compress argument required in order for Logs to consume.
 ###
-$events | ForEach({
 
-	Add-Member -NotePropertyName 'event_type' -NotePropertyValue 'Windows Event Logs' -InputObject $_;
-  Add-Member -NotePropertyName 'log_name' -NotePropertyValue $LogName -InputObject $_;
-
-	# Recast Level (Informational, Warning, Critical) from an enum to a string so we see it in the UI.
-	$_.Level = [string]$_.Level;
-
-});
-
-###
-# Create hash table in required format for Logs, populated
-# with event object log data and pipe to ConvertTo-Json with
-# -Compress argument required in order for Logs to consume.
-###
 $logPayload = @($events) | ConvertTo-Json -Compress
-
-##
-# Output json string created above with regex to normalize date strings
-# post json string conversion..
-#
-# For some reason, PowerShell won't let me rename the TimeGenerated event property in the event object, so we have to resort
-# to using a regex here.
-###
-$logPayload = Write-Output ($logPayload -replace '"\\\/Date\((\d+)\)\\\/\"' ,'$1')
-$logPayload = Write-Output ($logPayload -replace 'TimeGenerated', 'timestamp')
 Write-Output $logPayload
 
 # Set the headers expected by Logs
-$headers = @{'Content-Type' = 'application/json'; 'X-License-Key' = $nrLicenseKey}
+$headers = @{'Content-Type' = 'application/json'; 'X-License-Key' = $LicenseKey}
 
 # Do the post to the Logs API
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $response = Invoke-WebRequest $nrLogEndpoint -Headers $headers -Method 'POST' -Body $logPayload
 
-#
 # Create a structure readable by NR Infra with metadata about this transaction for meta-Logging / debugging purposes
-#
 $nrMetaData = @{'event_type' = 'winEventLogAgt'; 'appVersion' = $appVersion; 'excludedEvents' = $ExclEventID; 'excludedLevels' = $ExclLevel; 'hostTime' = Get-Date -UFormat %s -Millisecond 0; 'pullAfter' = $timestamp.ToString(); 'logName' = $LogName; 'eventCount' = $events.Count; 'nrLogsResponse' = $response.StatusCode}
 
 $metaPayload = @{
     name = "com.newrelic.windows.eventlog"
-    integration_version = "0.1.0"
+    integration_version = "0.2.1"
     protocol_version = 1
 	  metrics = @($nrMetaData)
     inventory = @{}
