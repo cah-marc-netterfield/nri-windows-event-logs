@@ -4,18 +4,16 @@ integrations:
       - C:\Program Files\New Relic\newrelic-infra\custom-integrations\win-eventlogs.bat
     env:
       LOGNAME: Application
-      NRLICENSEKEY: (YourNRLicenseKeyHere)
       EXCLLEVEL: none
       EXCLEVENTID: none
     working_dir: C:\Program Files\New Relic\newrelic-infra\custom-integrations\
-    interval: 300s
-  - name: nr-win-eventlogs-sys
+    interval: 60s
+  - name: nr-win-eventlogs-printservice
     exec:
       - C:\Program Files\New Relic\newrelic-infra\custom-integrations\win-eventlogs.bat
     env:
-      LOGNAME: System
-      NRLICENSEKEY: (YourNRLicenseKeyHere)
+      LOGNAME: "Microsoft-Windows-PrintService/Admin"
       EXCLLEVEL: none
       EXCLEVENTID: none
     working_dir: C:\Program Files\New Relic\newrelic-infra\custom-integrations\
-    interval: 300s
+    interval: 60s
