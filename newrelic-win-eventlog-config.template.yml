@@ -1,6 +1,6 @@
-# This is a template config file for v2.1 of New Relic's Windows event log Infrastructure integration.
+# This is a template config file for v2.2 of New Relic's Windows event log Infrastructure integration.
 #
-# By default, we collect all entries from the Application and System log.  To add another log type,
+# By default, we collect all entries from the Application and PrintService log.  To add another log type,
 # copy an entire -name stanza, change the name so it's unique, and then set the LOGNAME property to your log's name (i.e. Security, Setup, etc)
 #
 # Filtering uses OR logic.  We first filter out the requested levels (Information, Warning) and then the event IDs.
@@ -12,10 +12,8 @@ integrations:
     exec:
       - C:\Program Files\New Relic\newrelic-infra\custom-integrations\win-eventlogs.bat
     env:
-      # The name of the log to be sent (i.e. Application, System, etc) - this is REQUIRED.
+      # The name of the channel to be sent (i.e. Application, System, etc) - this is REQUIRED.
       LOGNAME: Application
-      # Your New Relic license key - this is REQUIRED.
-      NRLICENSEKEY: (YourNRLicenseKeyHere)
       # Either none or a comma delimited list of the log levels to be filtered out and not sent to NR. (i.e. Information,Warning)
       # Do not leave this blank.
       EXCLLEVEL: none
@@ -23,14 +21,13 @@ integrations:
       # Do not leave this blank.
       EXCLEVENTID: none
     working_dir: C:\Program Files\New Relic\newrelic-infra\custom-integrations\
-    interval: 300s
-  - name: nr-win-eventlogs-sys
+    interval: 60s
+  - name: nr-win-eventlogs-printservice
     exec:
       - C:\Program Files\New Relic\newrelic-infra\custom-integrations\win-eventlogs.bat
     env:
-      LOGNAME: System
-      NRLICENSEKEY: (YourNRLicenseKeyHere)
+      LOGNAME: "Microsoft-Windows-PrintService/Admin"
       EXCLLEVEL: none
       EXCLEVENTID: none
     working_dir: C:\Program Files\New Relic\newrelic-infra\custom-integrations\
-    interval: 300s
+    interval: 60s
