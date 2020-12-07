@@ -24,7 +24,7 @@ This integration requires New Relic Infrastructure 1.8.0 or newer.
 
 5. Open newrelic-win-eventlog-config.yml with your favorite editor.
 
-6. By default, the integration collects all Application and System event log entries.  Each log type has its own stanza.  At minimum, you need to edit the file to add your New Relic license key.  See the template file for complete docs.
+6. By default, the integration collects all Application and PrintService/Admin event log entries.  Each log type has its own stanza.  See the template file for complete docs.
 
 7. Run: `net stop newrelic-infra`
 
