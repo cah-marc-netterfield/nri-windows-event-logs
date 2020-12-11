@@ -1,6 +1,6 @@
 # Windows Event Log Integration
 
-* Pipes Windows PowerShell `Get-EventLog` entries to New Relic Logs.
+* Pipes Windows PowerShell `Get-WinEvent` entries to New Relic Logs.
 * Configurable through Infrastructure config file.
 
 ![screenshot](./docs/windows-event-log.png)
